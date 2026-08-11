@@ -1,0 +1,22 @@
+# Render Blueprint — deploys World Intel as a single web service.
+# One-click: https://render.com/deploy?repo=https://github.com/Nefisauan/WORLD-MONITOR
+services:
+  - type: web
+    name: world-intel
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Optional keys — add values in the Render dashboard to unlock layers:
+      - key: FRED_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false

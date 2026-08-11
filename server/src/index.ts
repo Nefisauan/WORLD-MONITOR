@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { state, startLoops, subscribe } from "./state.js";
 import { explainMove } from "./engines/why.js";
 import { generateBrief } from "./engines/brief.js";
@@ -11,6 +15,19 @@ import { INSTRUMENTS } from "./knowledge/instruments.js";
 
 const app = Fastify({ logger: { level: "warn" } });
 await app.register(cors, { origin: true });
+
+// In production, serve the built frontend from web/dist (single web service).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDist = path.resolve(__dirname, "../../web/dist");
+if (fs.existsSync(webDist)) {
+  await app.register(fastifyStatic, { root: webDist });
+  app.setNotFoundHandler((req, reply) => {
+    if (req.url.startsWith("/api/")) return reply.code(404).send({ error: "not found" });
+    return reply.sendFile("index.html");
+  });
+}
+
+app.get("/api/health", async () => ({ ok: true, uptime: process.uptime() }));
 
 // ---- Snapshot & slices ----
 
