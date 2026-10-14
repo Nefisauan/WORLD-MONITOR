@@ -2,71 +2,38 @@ import { useState } from "react";
 import type { ProbabilityEstimate } from "../types";
 import { Panel } from "./Panel";
 
-interface Props {
-  probabilities: ProbabilityEstimate[];
-}
-
-function Bar({ label, value, cls }: { label: string; value: number | null; cls: string }) {
-  return (
-    <div className="pbar">
-      <span className="lbl">{label}</span>
-      <span className="track">
-        {value != null && <span className={`fill ${cls}`} style={{ display: "block", width: `${value * 100}%` }} />}
-      </span>
-      <span className="pct num">{value != null ? `${Math.round(value * 100)}%` : "—"}</span>
-    </div>
-  );
-}
-
-export function ProbabilityBoard({ probabilities }: Props) {
+export function ProbabilityBoard({ probabilities }: { probabilities: ProbabilityEstimate[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
-
   return (
-    <Panel title="Probability Engine / Mispricing Radar" live style={{ flex: 1.3, minHeight: 0 }}>
-      {probabilities.length === 0 && <div className="empty-note">Computing probability estimates…</div>}
-      {probabilities.map((p) => {
-        const open = openId === p.id;
-        const div = p.divergence != null ? Math.round(p.divergence * 100) : null;
-        return (
-          <div key={p.id} className="prob-row" onClick={() => setOpenId(open ? null : p.id)}>
-            <div className="prob-q">
-              <span className="forecast-tag">FORECAST</span>
-              {p.question}
-              {p.change24h != null && Math.abs(p.change24h) >= 0.5 && (
-                <span className={`delta-chip ${p.change24h > 0 ? "down" : "up"}`}>
-                  {p.change24h > 0 ? "+" : ""}{p.change24h}pp/24h
-                </span>
-              )}
-              {div != null && div >= 8 && (
-                <span className="delta-chip warn" title="Model vs prediction-market divergence — potential mispricing">
-                  Δ{div}pp GAP
-                </span>
-              )}
+    <Panel title="Probability Research" style={{ flex: 1.3, minHeight: 0 }}>
+      {probabilities.length === 0 && <div className="empty-note">Research status not yet available.</div>}
+      {probabilities.map((p) => (
+        <div className="prob-row" key={p.id}>
+          <button className="prob-toggle" aria-expanded={openId === p.id} onClick={() => setOpenId(openId === p.id ? null : p.id)}>
+            <span className="prob-q">{p.question}</span>
+            <span className="warn">Insufficient evidence · forecast withheld</span>
+          </button>
+          {openId === p.id && (
+            <div className="prob-evidence">
+              <p>{p.evidence.reason}</p>
+              <p>Validation: not evaluated. Uncertainty interval: unavailable.</p>
+              <p>Estimated at {p.asOf}. Method: {p.research.version}.</p>
+              <p>{p.methodology}</p>
+              <p>Legacy prior claim (unverified): {p.research.priorClaim}</p>
+              <strong>Heuristic signal contributions (log-odds, not measured effects)</strong>
+              {p.research.adjustments.length === 0 && <p>No eligible signal adjustments.</p>}
+              {p.research.adjustments.map((a, i) => <p key={i}>{a.logOdds >= 0 ? "+" : ""}{a.logOdds.toFixed(2)}: {a.driver}</p>)}
+              <p>Input snapshot: {p.research.inputs.quotes.length} eligible quotes; {p.research.inputs.events.length} events.
+                Excluded: {p.research.inputs.excludedQuotes.length} quotes, {p.research.inputs.excludedEvents.length} events.</p>
+              <details><summary>Quote provenance</summary>
+                {p.research.inputs.quotes.map((q) => <p key={q.id}>{q.id} · {q.source} · {q.asOf}</p>)}
+              </details>
+              <p>{p.evidence.comparisonReason}</p>
+              {p.research.relatedMarket && <p>Related, unmatched market: “{p.research.relatedMarket.question}” · quoted price {(p.research.relatedMarket.price * 100).toFixed(1)}¢. Context only.</p>}
             </div>
-            <div className="prob-bars">
-              <Bar label="Model" value={p.model} cls="fill-model" />
-              <Bar label="Market" value={p.predictionMarket} cls="fill-market" />
-              <Bar label="Base rate" value={p.baseRate} cls="fill-base" />
-            </div>
-            {open && (
-              <div style={{ marginTop: 8, fontSize: 10.5, fontFamily: "var(--sans)", lineHeight: 1.5 }}>
-                <div className="dim" style={{ marginBottom: 4 }}>
-                  <strong>Drivers:</strong>
-                </div>
-                {p.drivers.map((d, i) => (
-                  <div key={i} className="dim" style={{ paddingLeft: 8 }}>{d}</div>
-                ))}
-                {p.predictionMarketLabel && (
-                  <div className="faint" style={{ marginTop: 5 }}>
-                    Prediction market: “{p.predictionMarketLabel}” (Polymarket)
-                  </div>
-                )}
-                <div className="faint" style={{ marginTop: 5 }}>{p.methodology}</div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+          )}
+        </div>
+      ))}
     </Panel>
   );
 }

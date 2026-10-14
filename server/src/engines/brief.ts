@@ -52,18 +52,18 @@ export async function generateBrief(state: GlobalState): Promise<Brief> {
       lines: topEvents.map((c) => `[${c.impactScore}/100] ${c.headline} (${c.sourceCount} sources)`),
     },
     {
-      title: "Probability Shifts (24h)",
+      title: "Probability research status",
       lines: probShifts.length
         ? probShifts.map((p) => `${p.question}: model ${(p.model! * 100).toFixed(0)}% (${p.change24h! >= 0 ? "+" : ""}${p.change24h}pp)`)
-        : ["No material probability shifts in the last 24 hours"],
+        : ["Numeric forecasts and 24h probability changes are unavailable: existing heuristics lack supporting estimation and validation evidence."],
     },
     {
-      title: "Potential Mispricings (model vs prediction market)",
+      title: "Market comparison status",
       lines: mispricings.length
         ? mispricings.map(
             (p) => `${p.question}: model ${(p.model! * 100).toFixed(0)}% vs market ${(p.predictionMarket! * 100).toFixed(0)}% — gap ${(p.divergence! * 100).toFixed(0)}pp`,
           )
-        : ["No significant model-vs-market divergences currently"],
+        : ["Mispricing analysis unavailable: prediction-market outcomes, horizons and resolution rules have not been matched to model questions."],
     },
     {
       title: "Today's Catalysts",

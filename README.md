@@ -29,11 +29,7 @@ Open http://localhost:5173. Works immediately with zero API keys.
   exposure map, causal **transmission chain** (event → commodity → industry →
   macro → policy → markets), and **historical analogues** with documented
   "what happened next" outcomes (1973 oil embargo → 2023 SVB).
-- **Probability engine** — tracked questions (recession, oil disruption,
-  Hormuz closure, VIX>30, corrections, bank stress…) each start from a
-  documented historical base rate and apply transparent log-odds adjustments
-  from live signals. Shown side-by-side with **Polymarket** pricing; the
-  divergence is the **mispricing radar**.
+- **Probability research** — seven tracked questions expose reproducible legacy heuristic traces and source timestamps. Numeric forecasts are withheld because priors and adjustments lack supporting estimation and validation evidence. Related Polymarket quotes are unmatched context, not mispricing signals.
 - **Regime classifier** — Risk-On / Risk-Off / Inflationary / Stagflationary /
   Stress / Crisis from VIX, curve slope, gold-vs-equities, commodity impulse,
   HY-vs-IG credit, USD trend, breadth. Every input shown.
@@ -44,8 +40,7 @@ Open http://localhost:5173. Works immediately with zero API keys.
 - **Why is it moving?** — click any asset for ranked move attribution
   (event flow / group move / market beta / idiosyncratic) plus correlated
   movers. Explicitly labeled a model estimate.
-- **Morning brief** — "what changed": movers, regime, top events, probability
-  shifts, mispricings, today's catalysts, and *what could surprise the market*.
+- **Morning brief** — movers, regime, top events, research availability, upcoming catalysts and unusual moves. Unsupported probability and mispricing analysis is explicitly unavailable.
 - **Event radar calendar** — FOMC / CPI / payrolls / ECB / PCE / OPEC dates
   with importance scores and typical historical reactions.
 - **Watchlist** — persisted locally; the terminal surfaces which live events
@@ -61,7 +56,7 @@ Open http://localhost:5173. Works immediately with zero API keys.
 - **Deterministic first.** All scoring/probability/attribution engines are
   explainable rules + statistics. An LLM narration layer activates only when
   a key is configured, and it may only restate assembled live data.
-- **Probabilities, not certainties.** Every forecast shows its base rate,
+- **Evidence before precision.** Unsupported numerical forecasts are withheld. Research heuristics show their methodology and limitations; no calibration or predictive accuracy is claimed.
   drivers, and methodology.
 
 ## Data sources (live, keyless)
@@ -107,3 +102,9 @@ Updates stream over SSE (`/api/stream`); quotes refresh every 60s, news every
 All scores, probabilities, attributions, and analogues are model estimates for
 research purposes — not investment advice. Historical outcome figures are
 approximate documented moves (see `server/src/knowledge/history.ts`).
+
+## Development status and verification
+
+Start with [the audit](WORLD_MONITOR_AUDIT.md), [roadmap](WORLD_MONITOR_ROADMAP.md), [architecture](WORLD_MONITOR_ARCHITECTURE.md) and [progress](WORLD_MONITOR_PROGRESS.md). Existing rule-based risk scores, attribution and historical analogues have substantial limitations; this is not a validated trading system.
+
+Run `npm test`, `npm run typecheck`, `npm run build`, and `npm run lint --workspace=web`. GitHub Actions runs these checks on pushes and pull requests. The read-only `/api/v1/probability-research` contract exposes research traces; `research.diagnosticValue` is an unvalidated formula output, not a supported forecast. No permanent forecast registry is implemented yet.

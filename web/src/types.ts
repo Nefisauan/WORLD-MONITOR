@@ -79,6 +79,29 @@ export interface EventCluster {
 }
 
 export interface ProbabilityEstimate {
+  evidence: {
+    status: "insufficient_evidence";
+    validation: "not_evaluated";
+    reason: string;
+    uncertaintyInterval: null;
+    comparisonStatus: "unmatched_contract";
+    comparisonReason: string;
+  };
+  research: {
+    version: "legacy-log-odds-v1";
+    prior: number;
+    priorClaim: string;
+    adjustments: { logOdds: number; driver: string }[];
+    diagnosticValue: number; // Internal research output, not a supported forecast.
+    inputs: {
+      quotes: { id: string; source: string; asOf: string; price: number | null; changePct1M: number | null; changePct5D: number | null }[];
+      events: { id: string; headline: string; lastUpdate: string; categories: string[]; impactScore: number; sources: { url: string; source: string; publishedAt: string }[] }[];
+      excludedQuotes: string[];
+      excludedEvents: string[];
+    };
+    relatedMarket: { question: string; price: number } | null;
+  };
+
   id: string;
   question: string;
   category: string;

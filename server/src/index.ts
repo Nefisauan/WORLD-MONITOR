@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { registerProbabilityResearch } from "./probability-api.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
@@ -32,6 +33,7 @@ app.get("/api/health", async () => ({ ok: true, uptime: process.uptime() }));
 // ---- Snapshot & slices ----
 
 app.get("/api/state", async () => state);
+registerProbabilityResearch(app, () => state.probabilities);
 
 app.get("/api/instruments", async () => INSTRUMENTS);
 

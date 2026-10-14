@@ -1,20 +1,16 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { EventCluster, ProbabilityEstimate, Quote } from "../types.js";
 import { searchPolymarket } from "../sources/polymarket.js";
 import { clamp } from "../util.js";
 
-// Probability engine. Every estimate starts from a documented historical base
-// rate and applies transparent log-odds adjustments from live market/event
-// signals. Prediction-market quotes are shown side-by-side; the divergence is
-// itself a signal ("mispricing radar"). Estimates are forecasts, not facts.
+// Research-only heuristic engine. Legacy coefficients are preserved for inspection,
+// but no numeric forecast is published without supporting estimation evidence.
 
-interface Inputs {
+export interface Inputs {
   quotes: Record<string, Quote>;
   clusters: EventCluster[];
 }
 
-interface Adjustment {
+export interface Adjustment {
   logOdds: number;
   driver: string;
 }
@@ -186,33 +182,8 @@ const QUESTIONS: QuestionSpec[] = [
   },
 ];
 
-// ---- 24h snapshot persistence for change tracking + prediction ledger ----
-
-const CACHE_DIR = path.resolve(process.cwd(), ".cache");
-const SNAP_FILE = path.join(CACHE_DIR, "probability-snapshots.json");
-
-interface Snapshot {
-  ts: number;
-  values: Record<string, number>;
-}
-
-function loadSnapshots(): Snapshot[] {
-  try {
-    return JSON.parse(fs.readFileSync(SNAP_FILE, "utf8")) as Snapshot[];
-  } catch {
-    return [];
-  }
-}
-
-function saveSnapshots(snaps: Snapshot[]) {
-  try {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(SNAP_FILE, JSON.stringify(snaps.slice(-500)));
-  } catch {
-    // non-fatal
-  }
-}
-
+// No mutable probability snapshot cache: unsupported estimates must not generate
+// forecast-change or mispricing signals.
 const pmCache = new Map<string, { prob: number | null; label?: string; fetchedAt: number }>();
 const PM_TTL = 10 * 60 * 1000;
 
@@ -222,51 +193,99 @@ async function getPredictionMarket(query: string | null): Promise<{ prob: number
   if (cached && Date.now() - cached.fetchedAt < PM_TTL) return cached;
   try {
     const res = await searchPolymarket(query);
-    const entry = { prob: res?.yesProb ?? null, label: res?.question, fetchedAt: Date.now() };
+    const prob = res?.yesProb;
+    const entry = {
+      prob: prob != null && Number.isFinite(prob) && prob >= 0 && prob <= 1 ? prob : null,
+      label: res?.question,
+      fetchedAt: Date.now(),
+    };
     pmCache.set(query, entry);
     return entry;
   } catch {
-    return cached ?? { prob: null };
+    return { prob: null }; // Never relabel an expired market observation as current.
   }
 }
 
-export async function computeProbabilities(inputs: Inputs): Promise<ProbabilityEstimate[]> {
-  const snaps = loadSnapshots();
-  const dayAgo = Date.now() - 24 * 3600 * 1000;
-  const reference = [...snaps].reverse().find((s) => s.ts <= dayAgo) ?? snaps[0];
+export interface ProbabilityDependencies {
+  now?: Date;
+  marketLookup?: (query: string | null) => Promise<{ prob: number | null; label?: string }>;
+}
 
-  const out: ProbabilityEstimate[] = [];
-  const currentValues: Record<string, number> = {};
-
-  for (const spec of QUESTIONS) {
-    const adjustments = spec.adjust(inputs);
-    const totalLogOdds = logit(spec.baseRate) + adjustments.reduce((a, b) => a + b.logOdds, 0);
-    const model = clamp(sigmoid(totalLogOdds), 0.01, 0.97);
-    currentValues[spec.id] = model;
-
-    const pm = await getPredictionMarket(spec.polymarketQuery);
-    const refVal = reference?.values[spec.id];
-
-    out.push({
-      id: spec.id,
-      question: spec.question,
-      category: spec.category,
-      model,
-      predictionMarket: pm.prob,
-      predictionMarketLabel: pm.label,
-      baseRate: spec.baseRate,
-      change24h: refVal != null ? Math.round((model - refVal) * 1000) / 10 : null,
-      drivers: adjustments.length
-        ? adjustments.map((a) => `${a.logOdds >= 0 ? "+" : "−"} ${a.driver}`)
-        : ["No live signals deviating from base rate"],
-      divergence: pm.prob != null ? Math.abs(model - pm.prob) : null,
-      asOf: new Date().toISOString(),
-      methodology: `Base rate ${(spec.baseRate * 100).toFixed(0)}% (${spec.baseRateNote}); log-odds adjustments from live signals listed under drivers.`,
-    });
+/** Deterministic, reproducible legacy calculation; NOT a fitted probability model. */
+export function calculateHeuristic(baseRate: number, adjustments: Adjustment[]): number {
+  if (!Number.isFinite(baseRate) || baseRate <= 0 || baseRate >= 1 ||
+      adjustments.some((a) => !Number.isFinite(a.logOdds))) {
+    throw new Error("Invalid heuristic inputs");
   }
+  return clamp(sigmoid(logit(baseRate) + adjustments.reduce((sum, a) => sum + a.logOdds, 0)), 0.01, 0.97);
+}
 
-  snaps.push({ ts: Date.now(), values: currentValues });
-  saveSnapshots(snaps);
+export async function computeProbabilities(
+  inputs: Inputs,
+  dependencies: ProbabilityDependencies = {},
+): Promise<ProbabilityEstimate[]> {
+  const now = dependencies.now ?? new Date();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) throw new Error("Invalid estimation time");
+  const marketLookup = dependencies.marketLookup ?? getPredictionMarket;
+  // Conservative common freshness ceiling. Exchange-calendar-specific freshness
+  // and separate history timestamps remain prerequisites for validated models.
+  const quotes = Object.fromEntries(Object.entries(inputs.quotes).filter(([, q]) => {
+    const age = nowMs - Date.parse(q.asOf);
+    return !q.stale && Number.isFinite(age) && age >= 0 && age <= 72 * 3600_000 &&
+      [q.price, q.changePct1D, q.changePct5D, q.changePct1M, q.changePctYTD].every(
+        (v) => v === null || Number.isFinite(v),
+      );
+  }));
+  const clusters = inputs.clusters.filter((c) => {
+    const age = nowMs - Date.parse(c.lastUpdate);
+    return Number.isFinite(age) && age >= 0 && age <= 36 * 3600_000 &&
+      Number.isFinite(c.impactScore) && c.impactScore >= 0 && c.impactScore <= 100;
+  });
+  // Copy exact information consumed so later state mutation cannot alter lineage.
+  const inputSnapshot = {
+    quotes: Object.values(quotes).map((q) => ({
+      id: q.id, source: q.source, asOf: q.asOf, price: q.price,
+      changePct1M: q.changePct1M, changePct5D: q.changePct5D,
+    })),
+    events: clusters.map((c) => ({
+      id: c.id, headline: c.headline, lastUpdate: c.lastUpdate,
+      categories: [...c.categories], impactScore: c.impactScore,
+      sources: c.items.map((item) => ({ url: item.url, source: item.source, publishedAt: item.publishedAt })),
+    })),
+    excludedQuotes: Object.keys(inputs.quotes).filter((id) => !quotes[id]),
+    excludedEvents: inputs.clusters.filter((c) => !clusters.includes(c)).map((c) => c.id),
+  };
 
-  return out.sort((a, b) => (b.divergence ?? 0) - (a.divergence ?? 0));
+  return Promise.all(QUESTIONS.map(async (spec): Promise<ProbabilityEstimate> => {
+    const adjustments = spec.adjust({ quotes, clusters });
+    // Related markets are retained as research context, never compared as identical contracts.
+    let pm: { prob: number | null; label?: string } = { prob: null };
+    try { pm = await marketLookup(spec.polymarketQuery); } catch { /* Provider unavailable. */ }
+    const relatedPrice = pm.prob != null && Number.isFinite(pm.prob) && pm.prob >= 0 && pm.prob <= 1
+      ? pm.prob : null;
+    return {
+      id: spec.id, question: spec.question, category: spec.category,
+      model: null, baseRate: null, predictionMarket: null,
+      change24h: null, divergence: null,
+      drivers: adjustments.map((a) => a.driver),
+      asOf: now.toISOString(),
+      methodology: "Research heuristic v1: sigmoid(logit(prior) + sum(log-odds adjustments)), clipped to [0.01, 0.97]. Prior and coefficients are hand-set, not statistically estimated.",
+      evidence: {
+        status: "insufficient_evidence", validation: "not_evaluated",
+        reason: "No reproducible target-matched base-rate dataset, fitted adjustments, or out-of-sample evaluation is available. Numeric forecast withheld.",
+        uncertaintyInterval: null,
+        comparisonStatus: "unmatched_contract",
+        comparisonReason: "Keyword search does not verify the outcome definition, resolution rules, or horizon. No mispricing inference is supported.",
+      },
+      research: {
+        version: "legacy-log-odds-v1", prior: spec.baseRate,
+        priorClaim: spec.baseRateNote,
+        adjustments: adjustments.map((a) => ({ ...a })),
+        diagnosticValue: calculateHeuristic(spec.baseRate, adjustments),
+        inputs: structuredClone(inputSnapshot),
+        relatedMarket: relatedPrice == null ? null : { question: pm.label ?? "Unknown contract", price: relatedPrice },
+      },
+    };
+  }));
 }
