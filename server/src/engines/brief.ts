@@ -15,7 +15,7 @@ const fmt = (n: number | null | undefined, suffix = "%") =>
   n == null ? "n/a" : `${n >= 0 ? "+" : ""}${n.toFixed(1)}${suffix}`;
 
 export async function generateBrief(state: GlobalState): Promise<Brief> {
-  const quotes = Object.values(state.quotes);
+  const quotes = Object.values(state.quotes).filter((q) => !q.stale);
   const movers = quotes
     .filter((q) => q.changePct1D != null)
     .sort((a, b) => Math.abs(b.changePct1D!) - Math.abs(a.changePct1D!))

@@ -29,3 +29,20 @@ WORLD_MONITOR_AUDIT.md, WORLD_MONITOR_ROADMAP.md, WORLD_MONITOR_ARCHITECTURE.md,
 ### Incomplete / next
 
 This is an analytical integrity foundation, not a completed institutional platform. No permanent forecast registry, durable events, calibrated statistical model, historical study engine, evidence graph, scenario simulator, opportunity detector or Quant Research Engine integration is implemented. Legacy risk/attribution/history/calendar limitations remain in the audit. Next: ingestion freshness and security corrections, explicit forecast resolution contracts, then durable provenance and immutable forecasts with independent outcome validation.
+
+## Iteration 2 — 2026-10-14
+
+Implemented ingestion integrity without changing hosting or adding simulated production data:
+
+- Correct timestamped historical fallback; provider/retrieval/history provenance and visible observation age.
+- Reject invalid, future and unordered observation data; suppress statistics from expired history; retain valid crypto ticker when sparkline fails; 365-day crypto volatility annualization.
+- Exclude flagged stale quotes from current regime/risk/alert/brief/attribution calculations; return unknown regime on empty inputs.
+- Report partial market health and rejected news items; show health summary in the terminal.
+- Preserve RSS publication and detection times, reject bad dates/unsafe URLs per item, retain first process-local detection and expire news during empty feed refreshes.
+- Redact URL secrets, bodies and raw exception text from shared provider request failures.
+
+Files: quote/regime/risk-consumer/brief/event engines, shared fetch utility, RSS/Yahoo adapters, polling state, client/server types, MarketGrid and TopBar, ingestion tests and probability fixtures; architecture/audit/roadmap/progress documents.
+
+Validation: 19 tests pass, including ten new ingestion/UI/error-redaction/refresh regression tests. Full build and typecheck pass; lint passes with existing warnings. Existing lint warnings remain. Live deployed behavior remains unverified; no forecast accuracy is claimed.
+
+Remaining: persistent events and forecast records, target-resolution contracts, point-in-time historical datasets, full provider schemas and rate-limit handling, exchange-calendar-aware freshness, confirmed deployment and permanent storage. Next implementation priority is durable event identity/provenance followed by immutable forecasts with independent outcome evaluation.

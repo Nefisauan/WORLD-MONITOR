@@ -1,6 +1,10 @@
 // Mirrors server/src/types.ts (client view of the API).
 
 export interface Quote {
+  retrievedAt: string;
+  priceKind: "provider_quote" | "historical_fallback";
+  historyAsOf: string | null;
+  historyStale: boolean;
   id: string;
   name: string;
   cls: string;
@@ -21,6 +25,7 @@ export interface Quote {
 }
 
 export interface NewsItem {
+  detectedAt: string; // Retrieval time, never substituted for publication time.
   id: string;
   title: string;
   url: string;

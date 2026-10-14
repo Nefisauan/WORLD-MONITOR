@@ -1,3 +1,12 @@
+/** Provider errors intentionally omit path, query, userinfo and raw exception text. */
+class ProviderRequestError extends Error {}
+
+export function providerError(url: string, status?: number): Error {
+  let host = "unknown provider";
+  try { host = new URL(url).hostname; } catch { /* No raw URL in errors. */ }
+  return new ProviderRequestError(`${status == null ? "Request failed" : `HTTP ${status}`} from ${host}`);
+}
+
 // Small utilities: fetch with timeout/retry, concurrency pool, stats helpers.
 
 export async function fetchJson<T>(
@@ -14,10 +23,10 @@ export async function fetchJson<T>(
         headers: { "user-agent": "world-intel/0.1 (research terminal)", ...headers },
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      if (!res.ok) throw providerError(url, res.status);
       return (await res.json()) as T;
     } catch (err) {
-      lastErr = err;
+      lastErr = err instanceof ProviderRequestError ? err : providerError(url);
       if (attempt < retries) await sleep(500 * (attempt + 1));
     } finally {
       clearTimeout(timer);
@@ -38,8 +47,10 @@ export async function fetchText(
       headers: { "user-agent": "world-intel/0.1 (research terminal)", ...headers },
       signal: ctrl.signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    if (!res.ok) throw providerError(url, res.status);
     return await res.text();
+  } catch (err) {
+    throw err instanceof ProviderRequestError ? err : providerError(url);
   } finally {
     clearTimeout(timer);
   }

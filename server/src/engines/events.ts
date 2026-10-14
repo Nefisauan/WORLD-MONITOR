@@ -64,7 +64,7 @@ function matchAnalogues(catIds: string[], strong: boolean): AnalogueMatch[] {
 export function buildClusters(items: NewsItem[], previous: EventCluster[]): EventCluster[] {
   // Keep last 36h of news
   const cutoff = Date.now() - 36 * 3600 * 1000;
-  const fresh = items.filter((it) => new Date(it.publishedAt).getTime() > cutoff);
+  const fresh = items.filter((it) => new Date(it.publishedAt).getTime() > cutoff && new Date(it.publishedAt).getTime() <= Date.now());
 
   // Greedy clustering by title similarity
   const clusters: { rep: NewsItem; tokens: Set<string>; members: NewsItem[] }[] = [];
@@ -96,8 +96,8 @@ export function buildClusters(items: NewsItem[], previous: EventCluster[]): Even
     const countries = [...new Set(c.members.flatMap((m) => detectCountries(m.title)))];
     const sources = new Set(c.members.map((m) => m.source));
     const firstSeen = c.members.reduce(
-      (min, m) => (m.publishedAt < min ? m.publishedAt : min),
-      c.members[0].publishedAt,
+      (min, m) => (m.detectedAt < min ? m.detectedAt : min),
+      c.members[0].detectedAt,
     );
     const lastUpdate = c.members.reduce(
       (max, m) => (m.publishedAt > max ? m.publishedAt : max),

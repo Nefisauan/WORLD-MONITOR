@@ -78,3 +78,7 @@ Frontend hides right column under 1280px, including probabilities/watchlist/cale
 6. Inspect the actual Quant Research Engine before integration; add AI extraction only with measurable benefit and verification.
 
 Reuse existing UI, source adapters and deterministic engines. Do not rebuild the application.
+
+## Remediation update — iteration 2
+
+Fixed the historical-close-as-current fallback, missing/future quote timestamp substitution, stale history statistics, loss of a valid ticker when its sparkline fails, crypto annualization calendar, empty-input Risk-On classification, optimistic market completeness health, stale-quote consumption by current analytics, missing/invalid RSS publication dates, unsafe RSS links, and shared fetch URL/error-text credential exposure. RSS item rejection is now observable; publication and detection times are distinct. Other baseline findings remain open unless explicitly listed here. These changes are covered by deterministic ingestion failure tests; they do not certify provider availability or statistical model validity.

@@ -4,7 +4,7 @@ import type { NewsItem } from "../types.js";
 
 // Curated RSS feeds. Tier reflects source-quality prior (1 = official/wire).
 
-interface FeedSpec {
+export interface FeedSpec {
   url: string;
   source: string;
   tier: number;
@@ -27,22 +27,29 @@ const FEEDS: FeedSpec[] = [
 
 const parser = new XMLParser({ ignoreAttributes: false });
 
-function normalizeItems(xml: string, spec: FeedSpec): NewsItem[] {
+export function normalizeItems(xml: string, spec: FeedSpec, now = new Date()): { items: NewsItem[]; rejected: number } {
   const doc = parser.parse(xml);
   const channel = doc?.rss?.channel ?? doc?.feed;
-  if (!channel) return [];
+  if (!channel) throw new Error("Unrecognized RSS/Atom document");
   let rawItems = channel.item ?? channel.entry ?? [];
   if (!Array.isArray(rawItems)) rawItems = [rawItems];
   const items: NewsItem[] = [];
+  let rejected = 0;
   for (const it of rawItems) {
+    if (!it || typeof it !== "object") { rejected++; continue; }
     const title = typeof it.title === "string" ? it.title : it.title?.["#text"];
-    if (!title) continue;
+    if (!title || typeof title !== "string") { rejected++; continue; }
     let url = "";
     if (typeof it.link === "string") url = it.link;
     else if (it.link?.["@_href"]) url = it.link["@_href"];
     else if (Array.isArray(it.link)) url = it.link[0]?.["@_href"] ?? "";
     const pub = it.pubDate ?? it.published ?? it.updated ?? it["dc:date"];
-    const publishedAt = pub ? new Date(pub).toISOString() : new Date().toISOString();
+    const publishedMs = typeof pub === "string" ? Date.parse(pub) : NaN;
+    let safeUrl: URL;
+    try { safeUrl = new URL(url); } catch { rejected++; continue; }
+    if (!["http:", "https:"].includes(safeUrl.protocol) || safeUrl.username || safeUrl.password ||
+        !Number.isFinite(publishedMs) || publishedMs > now.getTime()) { rejected++; continue; }
+    const publishedAt = new Date(publishedMs).toISOString();
     items.push({
       id: hashId(spec.source + title),
       title: String(title).trim(),
@@ -50,21 +57,23 @@ function normalizeItems(xml: string, spec: FeedSpec): NewsItem[] {
       source: spec.source,
       sourceTier: spec.tier,
       publishedAt,
+      detectedAt: now.toISOString(),
       categories: [],
     });
   }
-  return items;
+  return { items, rejected };
 }
 
-export async function fetchAllFeeds(): Promise<{ items: NewsItem[]; failures: string[] }> {
+export async function fetchAllFeeds(): Promise<{ items: NewsItem[]; failures: string[]; rejected: number }> {
   const failures: string[] = [];
   const results = await Promise.allSettled(
     FEEDS.map(async (spec) => normalizeItems(await fetchText(spec.url, { timeoutMs: 10_000 }), spec)),
   );
   const items: NewsItem[] = [];
+  let rejected = 0;
   results.forEach((r, i) => {
-    if (r.status === "fulfilled") items.push(...r.value);
+    if (r.status === "fulfilled") { items.push(...r.value.items); rejected += r.value.rejected; }
     else failures.push(FEEDS[i].source);
   });
-  return { items, failures };
+  return { items, failures, rejected };
 }

@@ -42,6 +42,7 @@ export function explainMove(
   quotes: Record<string, Quote>,
   clusters: EventCluster[],
 ): WhyExplanation | null {
+  quotes = Object.fromEntries(Object.entries(quotes).filter(([, q]) => !q.stale));
   const inst = INSTRUMENT_BY_ID.get(assetId);
   const q = quotes[assetId];
   if (!inst || !q) return null;

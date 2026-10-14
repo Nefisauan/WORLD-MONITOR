@@ -83,6 +83,10 @@ export function TopBar({ state, connected, onAssetClick, onBriefClick }: Props) 
       </div>
 
       <div className="topbar-right">
+        <span className={Object.values(state?.dataHealth ?? {}).some((h) => !h.ok) ? "warn" : "dim"}
+          title={Object.entries(state?.dataHealth ?? {}).map(([name, h]) => `${name}: ${h.ok ? "ok" : "degraded"} · ${h.note ?? ""} · last complete success ${h.lastSuccess ?? "never"}`).join("\n")}>
+          DATA {state ? Object.values(state.dataHealth).filter((h) => !h.ok).length + " degraded" : "pending"}
+        </span>
         <button className="btn" onClick={onBriefClick}>BRIEF</button>
         <span>
           <kbd>⌘K</kbd>

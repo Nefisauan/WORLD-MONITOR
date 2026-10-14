@@ -9,6 +9,7 @@ import type { EventCluster, GlobalState, Quote } from "../src/types.js";
 const now = new Date("2026-10-14T12:00:00Z");
 const deps = { now, marketLookup: async () => ({ prob: null }) };
 const quote = (overrides: Partial<Quote> = {}): Quote => ({
+  retrievedAt: now.toISOString(), priceKind: "provider_quote", historyAsOf: now.toISOString(), historyStale: false,
   id: "VIX", name: "VIX", cls: "equity_index", group: "Volatility",
   source: "test fixture", asOf: now.toISOString(), price: 31,
   changePct1D: 1, changePct5D: 2, changePct1M: 3, changePctYTD: 4,
@@ -17,7 +18,7 @@ const quote = (overrides: Partial<Quote> = {}): Quote => ({
 });
 const event = (overrides: Partial<EventCluster> = {}): EventCluster => ({
   id: "test-event", headline: "Test oil supply event", categories: ["oil_supply"],
-  items: [{ id: "item", title: "Fixture", url: "https://example.com/report", source: "fixture", sourceTier: 1, publishedAt: now.toISOString(), categories: [] }],
+  items: [{ detectedAt: now.toISOString(), id: "item", title: "Fixture", url: "https://example.com/report", source: "fixture", sourceTier: 1, publishedAt: now.toISOString(), categories: [] }],
   sourceCount: 1, firstSeen: now.toISOString(), lastUpdate: now.toISOString(),
   impactScore: 90, impactBreakdown: {}, credibility: 50, countries: [], exposures: [], transmission: null, analogues: [], ...overrides,
 });

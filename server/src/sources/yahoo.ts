@@ -49,13 +49,13 @@ export async function yahooChart(
       const timestamps: number[] = [];
       for (let i = 0; i < rawCloses.length; i++) {
         const c = rawCloses[i];
-        if (c != null && isFinite(c)) {
+        if (typeof c === "number" && Number.isFinite(c) && Number.isFinite(rawTs[i]) && rawTs[i] > 0) {
           closes.push(c);
-          timestamps.push(rawTs[i] ?? 0);
+          timestamps.push(rawTs[i]);
         }
       }
       return {
-        price: result.meta.regularMarketPrice ?? closes[closes.length - 1] ?? null,
+        price: typeof result.meta.regularMarketPrice === "number" && Number.isFinite(result.meta.regularMarketPrice) ? result.meta.regularMarketPrice : null,
         previousClose: result.meta.chartPreviousClose ?? result.meta.previousClose ?? null,
         closes,
         timestamps,

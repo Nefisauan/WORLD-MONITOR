@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Quote } from "../types";
 import { Sparkline } from "./Sparkline";
-import { fmtPct, fmtPrice, pctClass } from "./Panel";
+import { fmtPct, fmtPrice, pctClass, timeAgo } from "./Panel";
 
 interface Props {
   quotes: Record<string, Quote>;
@@ -30,7 +30,7 @@ export function MarketGrid({ quotes, onAssetClick }: Props) {
     <div className="panel" style={{ flex: 1, minHeight: 0 }}>
       <div className="panel-header">
         <span className="panel-title">
-          <span className="live-dot" />
+
           Global Markets
         </span>
         <div className="mkt-tabs">
@@ -53,11 +53,12 @@ export function MarketGrid({ quotes, onAssetClick }: Props) {
               <th>1M</th>
               <th>YTD</th>
               <th>Vol30</th>
+              <th>Observed</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((q) => (
-              <tr key={q.id} onClick={() => onAssetClick(q.id)} title={`${q.source} · as of ${q.asOf}\nClick for move attribution`}>
+              <tr key={q.id} onClick={() => onAssetClick(q.id)} title={`${q.source} · observed ${q.asOf} · retrieved ${q.retrievedAt}\nPrice: ${q.priceKind}; history: ${q.historyStale ? "unavailable or stale" : q.historyAsOf}\nClick for move attribution`}>
                 <td>
                   {q.name}
                   {q.unusual && q.zScore1D != null && (
@@ -65,6 +66,8 @@ export function MarketGrid({ quotes, onAssetClick }: Props) {
                       {Math.abs(q.zScore1D).toFixed(1)}σ
                     </span>
                   )}
+                  {q.priceKind === "historical_fallback" && <span className="z-badge warn">historical close</span>}
+                  {q.historyStale && <span className="z-badge warn">history unavailable</span>}
                   {q.stale && <span className="z-badge" style={{ color: "var(--text-faint)" }}>stale</span>}
                 </td>
                 <td>
@@ -76,6 +79,7 @@ export function MarketGrid({ quotes, onAssetClick }: Props) {
                 <td className={`num ${pctClass(q.changePct1M)}`}>{fmtPct(q.changePct1M, 1)}</td>
                 <td className={`num ${pctClass(q.changePctYTD)}`}>{fmtPct(q.changePctYTD, 1)}</td>
                 <td className="num dim">{q.vol30D != null ? `${q.vol30D.toFixed(0)}%` : "—"}</td>
+                <td className="num dim">{timeAgo(q.asOf)} ago</td>
               </tr>
             ))}
           </tbody>

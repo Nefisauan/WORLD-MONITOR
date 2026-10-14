@@ -1,4 +1,4 @@
-import type { EventCluster, GlobalState, MapPoint, NewsItem } from "./types.js";
+import type { EventCluster, GlobalState, MapPoint, NewsItem, Quote } from "./types.js";
 import { refreshQuotes } from "./engines/quotes.js";
 import { buildClusters } from "./engines/events.js";
 import { classifyRegime } from "./engines/regime.js";
@@ -8,6 +8,7 @@ import { fetchAllFeeds } from "./sources/rss.js";
 import { fetchGdeltMapPoints } from "./sources/gdelt.js";
 import { fetchQuakes } from "./sources/usgs.js";
 import { buildCalendar } from "./knowledge/calendar.js";
+import { INSTRUMENTS } from "./knowledge/instruments.js";
 import { CHOKEPOINTS } from "./knowledge/countries.js";
 
 // Central in-memory state + polling orchestration. Each loop updates a slice
@@ -52,25 +53,32 @@ function health(source: string, ok: boolean, note?: string) {
 }
 
 function rebuildDerived() {
-  state.regime = classifyRegime(state.quotes, state.regime);
-  const { score, drivers } = computeGlobalRisk(state.quotes, state.clusters, state.regime);
-  state.globalRiskScore = score;
+  const eligibleQuotes = Object.fromEntries(Object.entries(state.quotes).filter(([, q]) => !q.stale));
+  state.regime = classifyRegime(eligibleQuotes, state.regime);
+  const { score, drivers } = computeGlobalRisk(eligibleQuotes, state.clusters, state.regime);
+  state.globalRiskScore = Object.keys(eligibleQuotes).length || state.clusters.length ? score : null;
   state.riskDrivers = drivers;
   state.countryRisk = computeCountryRisk(state.clusters);
-  state.alerts = generateAlerts(state.quotes, state.clusters, state.regime, state.alerts);
+  state.alerts = generateAlerts(eligibleQuotes, state.clusters, state.regime, state.alerts);
 }
 
-async function quotesLoop() {
-  try {
-    const quotes = await refreshQuotes();
+export function applyQuoteRefresh(quotes: Record<string, Quote>) {
+    state.quotes = quotes;
+    const usable = Object.values(quotes).filter((q) => !q.stale).length;
     if (Object.keys(quotes).length > 0) {
-      state.quotes = quotes;
-      health("markets", true);
+      health("markets", usable === INSTRUMENTS.length,
+        `${usable}/${INSTRUMENTS.length} usable provider quotes; ${Object.keys(quotes).length - usable} stale/fallback; ${INSTRUMENTS.length - Object.keys(quotes).length} unavailable`);
     } else {
       health("markets", false, "no quotes returned");
     }
     rebuildDerived();
     notify("quotes");
+}
+
+async function quotesLoop() {
+  try {
+    const quotes = await refreshQuotes();
+    applyQuoteRefresh(quotes);
   } catch (err) {
     health("markets", false, String(err));
   }
@@ -78,18 +86,16 @@ async function quotesLoop() {
 
 async function newsLoop() {
   try {
-    const { items, failures } = await fetchAllFeeds();
-    if (items.length) {
-      const byId = new Map(newsPool.map((n) => [n.id, n]));
-      for (const it of items) byId.set(it.id, it);
-      newsPool = [...byId.values()]
-        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-        .slice(0, 1500);
-      state.clusters = buildClusters(newsPool, state.clusters);
-      health("news", failures.length < 6, failures.length ? `failed: ${failures.join(", ")}` : undefined);
-    } else {
-      health("news", false, "all feeds failed");
-    }
+    const { items, failures, rejected } = await fetchAllFeeds();
+    const byId = new Map(newsPool.map((n) => [n.id, n]));
+    for (const it of items) byId.set(it.id, { ...it, detectedAt: byId.get(it.id)?.detectedAt ?? it.detectedAt });
+    newsPool = [...byId.values()]
+      .filter((n) => Date.parse(n.publishedAt) > Date.now() - 36 * 3600_000)
+      .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+      .slice(0, 1500);
+    state.clusters = buildClusters(newsPool, state.clusters);
+    health("news", failures.length === 0 && rejected === 0,
+      `accepted items: ${items.length}; failed feeds: ${failures.join(", ") || "none"}; rejected items: ${rejected}`);
     rebuildDerived();
     notify("events");
   } catch (err) {

@@ -7,7 +7,7 @@ import { downsample, mean, pctChange, pool, stdev } from "../util.js";
 // Quote engine: fetches prices, computes horizon returns, realized vol, and
 // z-scores of today's move against the trailing 1y daily-return distribution.
 
-interface HistoryCacheEntry {
+export interface HistoryCacheEntry {
   closes: number[];
   timestamps: number[];
   fetchedAt: number;
@@ -48,8 +48,8 @@ function dailyReturns(closes: number[]): number[] {
   return rets;
 }
 
-function ytdStartIndex(timestamps: number[]): number {
-  const year = new Date().getUTCFullYear();
+function ytdStartIndex(timestamps: number[], now: number): number {
+  const year = new Date(now).getUTCFullYear();
   const jan1 = Date.UTC(year, 0, 1) / 1000;
   for (let i = 0; i < timestamps.length; i++) {
     if (timestamps[i] >= jan1) return Math.max(0, i - 1);
@@ -57,8 +57,27 @@ function ytdStartIndex(timestamps: number[]): number {
   return 0;
 }
 
-async function buildQuote(inst: Instrument): Promise<Quote | null> {
-  const hist = await getDailyHistory(inst);
+export interface QuoteDependencies {
+  now?: () => number;
+  history?: (inst: Instrument) => Promise<HistoryCacheEntry | null>;
+  chart?: typeof yahooChart;
+  ticker?: typeof binanceTicker;
+  klines?: typeof binanceKlines;
+}
+
+export async function buildQuote(inst: Instrument, deps: QuoteDependencies = {}): Promise<Quote | null> {
+  const clock = deps.now ?? Date.now;
+  const rawHistory = await (deps.history ?? getDailyHistory)(inst);
+  const historyCutoff = clock() / 1000;
+  // Preserve matched observations, reject invalid/future or unordered bars.
+  const hist = rawHistory ? { ...rawHistory, closes: [] as number[], timestamps: [] as number[] } : null;
+  rawHistory?.closes.forEach((value, i) => {
+    const ts = rawHistory.timestamps[i];
+    if (hist && Number.isFinite(value) && Number.isFinite(ts) && ts > 0 && ts <= historyCutoff &&
+        (!hist.timestamps.length || ts > hist.timestamps[hist.timestamps.length - 1])) {
+      hist.closes.push(value); hist.timestamps.push(ts);
+    }
+  });
 
   let price: number | null = null;
   let changePct1D: number | null = null;
@@ -68,15 +87,15 @@ async function buildQuote(inst: Instrument): Promise<Quote | null> {
   try {
     if (inst.provider === "binance") {
       const [ticker, intraday] = await Promise.all([
-        binanceTicker(inst.symbol),
-        binanceKlines(inst.symbol, "15m", 96),
+        (deps.ticker ?? binanceTicker)(inst.symbol),
+        (deps.klines ?? binanceKlines)(inst.symbol, "15m", 96).catch(() => ({ closes: [], timestamps: [] })),
       ]);
       price = ticker.price;
       changePct1D = ticker.changePct1D;
       spark = downsample(intraday.closes, 60);
       asOfSec = ticker.asOf / 1000;
     } else {
-      const s = await yahooChart(inst.symbol, "1d", "5m");
+      const s = await (deps.chart ?? yahooChart)(inst.symbol, "1d", "5m");
       price = s.price;
       asOfSec = s.asOf;
       spark = downsample(s.closes, 60);
@@ -88,8 +107,21 @@ async function buildQuote(inst: Instrument): Promise<Quote | null> {
     // fall through: may still serve horizon stats from history
   }
 
-  if (price == null && hist) price = hist.closes[hist.closes.length - 1] ?? null;
-  if (price == null) return null;
+  const now = clock();
+  let priceKind: Quote["priceKind"] = "provider_quote";
+  if (price == null || !Number.isFinite(price) || asOfSec == null || !Number.isFinite(asOfSec) || asOfSec <= 0 || asOfSec > now / 1000) {
+    price = hist?.closes.at(-1) ?? null;
+    asOfSec = hist?.timestamps.at(-1) ?? null;
+    priceKind = "historical_fallback";
+    changePct1D = null;
+    spark = [];
+  }
+  if (price == null || asOfSec == null) return null;
+  if (changePct1D != null && !Number.isFinite(changePct1D)) changePct1D = null;
+  spark = spark.filter(Number.isFinite);
+  const historyAsOf = hist?.timestamps.at(-1);
+  const historyStale = !hist || !Number.isFinite(hist.fetchedAt) || hist.fetchedAt > now || now - hist.fetchedAt > HISTORY_TTL_MS ||
+    historyAsOf == null || now / 1000 - historyAsOf > 3 * 86_400;
 
   let changePct5D: number | null = null;
   let changePct1M: number | null = null;
@@ -98,12 +130,12 @@ async function buildQuote(inst: Instrument): Promise<Quote | null> {
   let vol30D: number | null = null;
   let dailySpark: number[] = [];
 
-  if (hist) {
+  if (hist && hist.closes.length && !historyStale) {
     const { closes, timestamps } = hist;
     const n = closes.length;
     if (n > 5) changePct5D = pctChange(closes[n - 6], price);
     if (n > 21) changePct1M = pctChange(closes[n - 22], price);
-    changePctYTD = pctChange(closes[ytdStartIndex(timestamps)], price);
+    changePctYTD = pctChange(closes[ytdStartIndex(timestamps, now)], price);
     dailySpark = downsample(closes, 120);
 
     const rets = dailyReturns(closes);
@@ -114,11 +146,12 @@ async function buildQuote(inst: Instrument): Promise<Quote | null> {
     }
     const recent = rets.slice(-30);
     if (recent.length >= 10) {
-      vol30D = stdev(recent) * Math.sqrt(252) * 100;
+      vol30D = stdev(recent) * Math.sqrt(inst.provider === "binance" ? 365 : 252) * 100;
     }
   }
 
-  const stale = asOfSec != null ? Date.now() / 1000 - asOfSec > 3 * 86_400 : false;
+  const stale = priceKind === "historical_fallback" || now / 1000 - asOfSec >
+    (inst.provider === "binance" ? 15 * 60 : 3 * 86_400);
 
   return {
     id: inst.id,
@@ -134,9 +167,13 @@ async function buildQuote(inst: Instrument): Promise<Quote | null> {
     dailySpark,
     zScore1D,
     vol30D,
-    unusual: zScore1D != null && Math.abs(zScore1D) >= 2,
+    unusual: !stale && zScore1D != null && Math.abs(zScore1D) >= 2,
     stale,
-    asOf: new Date((asOfSec ?? Date.now() / 1000) * 1000).toISOString(),
+    asOf: new Date(asOfSec * 1000).toISOString(),
+    retrievedAt: new Date(now).toISOString(),
+    priceKind,
+    historyAsOf: historyAsOf != null ? new Date(historyAsOf * 1000).toISOString() : null,
+    historyStale,
     source: inst.provider === "binance" ? "Binance" : "Yahoo Finance",
   };
 }

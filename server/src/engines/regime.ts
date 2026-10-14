@@ -15,7 +15,7 @@ type Regime = "Risk-On" | "Risk-Off" | "Inflationary" | "Stagflationary" | "Stre
 
 const REGIMES: Regime[] = ["Risk-On", "Risk-Off", "Inflationary", "Stagflationary", "Stress", "Crisis", "Neutral"];
 
-export function classifyRegime(quotes: Record<string, Quote>, previous: RegimeState | null): RegimeState {
+export function classifyRegime(quotes: Record<string, Quote>, previous: RegimeState | null): RegimeState | null {
   const q = (id: string) => quotes[id];
   const signals: Signal[] = [];
 
@@ -127,6 +127,8 @@ export function classifyRegime(quotes: Record<string, Quote>, previous: RegimeSt
       votes: pct > 70 ? { "Risk-On": 1 } : pct < 30 ? { "Risk-Off": 1 } : { Neutral: 1 },
     });
   }
+
+  if (!signals.length) return null;
 
   const scores: Record<string, number> = Object.fromEntries(REGIMES.map((r) => [r, 0]));
   let totalWeight = 0;
