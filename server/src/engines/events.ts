@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import type { AnalogueMatch, EventCluster, NewsItem } from "../types.js";
 import { CATEGORIES, COUNTRY_KEYWORDS } from "../knowledge/taxonomy.js";
 import { EPISODES } from "../knowledge/history.js";
-import { clamp, hashId, jaccard, tokenize } from "../util.js";
+import { clamp, jaccard, tokenize } from "../util.js";
 
 // Event engine: classify -> cluster (dedupe) -> score -> attach analogues +
 // transmission chains. All scoring is deterministic and explainable.
@@ -61,31 +62,38 @@ function matchAnalogues(catIds: string[], strong: boolean): AnalogueMatch[] {
   }));
 }
 
-export function buildClusters(items: NewsItem[], previous: EventCluster[]): EventCluster[] {
-  // Keep last 36h of news
-  const cutoff = Date.now() - 36 * 3600 * 1000;
-  const fresh = items.filter((it) => new Date(it.publishedAt).getTime() > cutoff && new Date(it.publishedAt).getTime() <= Date.now());
-
-  // Greedy clustering by title similarity
-  const clusters: { rep: NewsItem; tokens: Set<string>; members: NewsItem[] }[] = [];
-  const sorted = [...fresh].sort(
-    (a, b) => new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime(),
-  );
+export function buildClusters(items: NewsItem[], previous: EventCluster[], now = Date.now()): EventCluster[] {
+  const cutoff = now - 36 * 3600 * 1000;
+  const fresh = [...new Map(items.filter((it) => Date.parse(it.publishedAt) > cutoff &&
+    Date.parse(it.publishedAt) <= now).map((it) => [it.id, it])).values()];
+  // Pin known article membership before considering lexical similarity. Existing
+  // event groups never merge implicitly; this avoids rewriting historical identity.
+  type Group = { id: string; firstSeen: string | null; tokens: Set<string>; members: NewsItem[] };
+  const groups = new Map<string, Group>();
+  const owner = new Map<string, EventCluster>();
+  for (const event of previous) for (const item of event.items) owner.set(item.id, event);
+  const sorted = fresh.sort((a, b) => a.publishedAt.localeCompare(b.publishedAt) || a.id.localeCompare(b.id));
+  const add = (group: Group, item: NewsItem) => {
+    group.members.push(item);
+    for (const token of tokenize(item.title)) group.tokens.add(token);
+  };
   for (const item of sorted) {
-    const toks = tokenize(item.title);
-    let placed = false;
-    for (const c of clusters) {
-      if (jaccard(toks, c.tokens) >= 0.45) {
-        c.members.push(item);
-        for (const t of toks) c.tokens.add(t);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) clusters.push({ rep: item, tokens: toks, members: [item] });
+    const old = owner.get(item.id);
+    if (!old) continue;
+    if (!groups.has(old.id)) groups.set(old.id, { id: old.id, firstSeen: old.firstSeen, tokens: new Set(), members: [] });
+    add(groups.get(old.id)!, item);
   }
-
-  const prevById = new Map(previous.map((c) => [c.id, c]));
+  for (const item of sorted) {
+    if (owner.has(item.id)) continue;
+    const tokens = tokenize(item.title);
+    const match = [...groups.values()].map((g) => ({ g, similarity: jaccard(tokens, g.tokens) }))
+      .filter((x) => x.similarity >= 0.45)
+      .sort((a, b) => b.similarity - a.similarity || a.g.id.localeCompare(b.g.id))[0]?.g;
+    const group = match ?? { id: randomUUID(), firstSeen: null, tokens: new Set<string>(), members: [] };
+    groups.set(group.id, group);
+    add(group, item);
+  }
+  const clusters = [...groups.values()];
 
   const out: EventCluster[] = clusters.map((c) => {
     // Representative = highest-tier source, then longest title
@@ -95,9 +103,9 @@ export function buildClusters(items: NewsItem[], previous: EventCluster[]): Even
     const catIds = [...new Set(c.members.flatMap((m) => classify(m.title)))];
     const countries = [...new Set(c.members.flatMap((m) => detectCountries(m.title)))];
     const sources = new Set(c.members.map((m) => m.source));
-    const firstSeen = c.members.reduce(
+    const firstSeen = c.firstSeen ?? c.members.reduce(
       (min, m) => (m.detectedAt < min ? m.detectedAt : min),
-      c.members[0].detectedAt,
+      c.firstSeen ?? c.members[0].detectedAt,
     );
     const lastUpdate = c.members.reduce(
       (max, m) => (m.publishedAt > max ? m.publishedAt : max),
@@ -111,7 +119,7 @@ export function buildClusters(items: NewsItem[], previous: EventCluster[]): Even
     const magnitude = strong ? 12 : 0;
     const bestTier = Math.min(...c.members.map((m) => m.sourceTier));
     const credibilityBoost = bestTier === 1 ? 6 : bestTier === 2 ? 3 : 0;
-    const ageHours = (Date.now() - new Date(lastUpdate).getTime()) / 3_600_000;
+    const ageHours = (now - new Date(lastUpdate).getTime()) / 3_600_000;
     const recencyPenalty = clamp(ageHours * 1.2, 0, 25);
     const scopeBoost = clamp(countries.length * 2, 0, 8);
     const uncategorizedPenalty = catIds.length === 0 ? 35 : 0;
@@ -132,13 +140,13 @@ export function buildClusters(items: NewsItem[], previous: EventCluster[]): Even
       .map((id) => CATEGORIES.find((x) => x.id === id)!)
       .sort((a, b) => b.baseImpact - a.baseImpact)[0];
 
-    const id = prevById.has(hashId(rep.title)) ? hashId(rep.title) : hashId(rep.title);
+    const id = c.id;
 
     return {
       id,
       headline: rep.title,
       categories: catIds,
-      items: c.members.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)).slice(0, 12),
+      items: c.members.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || a.id.localeCompare(b.id)),
       sourceCount: sources.size,
       firstSeen,
       lastUpdate,

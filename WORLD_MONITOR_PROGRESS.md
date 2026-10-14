@@ -46,3 +46,15 @@ Files: quote/regime/risk-consumer/brief/event engines, shared fetch utility, RSS
 Validation: 19 tests pass, including ten new ingestion/UI/error-redaction/refresh regression tests. Full build and typecheck pass; lint passes with existing warnings. Existing lint warnings remain. Live deployed behavior remains unverified; no forecast accuracy is claimed.
 
 Remaining: persistent events and forecast records, target-resolution contracts, point-in-time historical datasets, full provider schemas and rate-limit handling, exchange-calendar-aware freshness, confirmed deployment and permanent storage. Next implementation priority is durable event identity/provenance followed by immutable forecasts with independent outcome evaluation.
+
+## Iteration 3 — 2026-10-14
+
+Implemented stable event identity and recorded event timelines. New articles use source+URL SHA-256 identity; events use UUIDs and preserve existing article membership before lexical clustering. SQLite schema v1 stores identities, original detection and append-only evidence revisions atomically. Restarts recover retained active news; expired events remain in the archive. Repeated evidence is idempotent; clock-only score decay is not a new revision. Full source membership is retained. Failed writes do not publish an unrecorded batch. Unknown schema versions/corrupt files fail without replacement.
+
+The event drawer now includes archived revision snapshots, saved scores, publication/detection timestamps, retry/loading states and bounded older-revision pagination. Added a versioned read-only timeline API; archived IDs work through the existing event endpoint. Node minimum raised to 22.13 for built-in SQLite. EVENT_DB_PATH and Git exclusions document the server runtime storage boundary.
+
+Validation: 29 tests pass (10 new event/storage/API/UI-render tests), production build and typechecks pass; lint retains five existing warnings. Tests cover representative changes, non-merging existing events, >12 sources, stable article IDs, close/reopen recovery, idempotence, immutable revision triggers, transaction rollback, chronology, archive expiry/reappearance, pagination/errors, corrupt/newer schemas and initial timeline rendering. Fixtures remain test-only. UI clicks are not browser-automated in this iteration; production hosting is unverified.
+
+Changed files: event engine, RSS adapter, polling state and server index; new storage/events.ts and event-api.ts; EventDrawer and new EventTimeline; new events.test.ts; package engine/lock metadata; server/.env.example, .gitignore and project documentation.
+
+Limitations: one application writer, synchronous SQLite, no semantic clustering or adjudicated merge/split, no pre-existing history backfill, no managed hosting volume or automated backup/restore. Current free Render configuration can lose files on redeployment. No forecast registry, outcome scoring or calibrated model is implemented yet. Next: explicit forecast resolution contracts and immutable forecast records linked to archived evidence.

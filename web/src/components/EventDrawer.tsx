@@ -1,3 +1,4 @@
+import { EventTimeline } from "./EventTimeline";
 import { useState } from "react";
 import type { AnalogueMatch, EventCluster, TransmissionNode } from "../types";
 import { timeAgo } from "./Panel";
@@ -119,6 +120,8 @@ export function EventDrawer({ cluster, onClose }: Props) {
             </div>
           </div>
         )}
+
+        <EventTimeline key={cluster.id} eventId={cluster.id} />
 
         <div className="drawer-section">
           <h3><span className="fact-tag">FACT</span> Source reporting ({cluster.items.length})</h3>

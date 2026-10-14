@@ -108,3 +108,9 @@ approximate documented moves (see `server/src/knowledge/history.ts`).
 Start with [the audit](WORLD_MONITOR_AUDIT.md), [roadmap](WORLD_MONITOR_ROADMAP.md), [architecture](WORLD_MONITOR_ARCHITECTURE.md) and [progress](WORLD_MONITOR_PROGRESS.md). Existing rule-based risk scores, attribution and historical analogues have substantial limitations; this is not a validated trading system.
 
 Run `npm test`, `npm run typecheck`, `npm run build`, and `npm run lint --workspace=web`. GitHub Actions runs these checks on pushes and pull requests. The read-only `/api/v1/probability-research` contract exposes research traces; `research.diagnosticValue` is an unvalidated formula output, not a supported forecast. No permanent forecast registry is implemented yet.
+
+## Event history and runtime storage
+
+Requires **Node 22.13+**. Event dossiers now include recorded evidence timelines backed by SQLite. Set `EVENT_DB_PATH` to an absolute path on a persistent hosting volume; the default is `server/.data/events.sqlite` when launched through npm workspaces. Runtime data is not stored in GitHub. The current Render free-service blueprint does not provide a persistent disk, so its default archive can be lost on redeployment. No paid storage has been provisioned.
+
+This archive supports one application writer. Committed history survives process restarts when the database files are retained; backup/restore operations and hosted retention still need verification. See [architecture](WORLD_MONITOR_ARCHITECTURE.md) for storage limits and the versioned timeline API.

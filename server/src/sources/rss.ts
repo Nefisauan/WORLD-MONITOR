@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
-import { fetchText, hashId } from "../util.js";
+import { fetchText } from "../util.js";
 import type { NewsItem } from "../types.js";
 
 // Curated RSS feeds. Tier reflects source-quality prior (1 = official/wire).
@@ -49,11 +50,12 @@ export function normalizeItems(xml: string, spec: FeedSpec, now = new Date()): {
     try { safeUrl = new URL(url); } catch { rejected++; continue; }
     if (!["http:", "https:"].includes(safeUrl.protocol) || safeUrl.username || safeUrl.password ||
         !Number.isFinite(publishedMs) || publishedMs > now.getTime()) { rejected++; continue; }
+    safeUrl.hash = "";
     const publishedAt = new Date(publishedMs).toISOString();
     items.push({
-      id: hashId(spec.source + title),
+      id: createHash("sha256").update(spec.source + "\n" + safeUrl.href).digest("hex"),
       title: String(title).trim(),
-      url,
+      url: safeUrl.href,
       source: spec.source,
       sourceTier: spec.tier,
       publishedAt,

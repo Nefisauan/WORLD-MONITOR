@@ -1,3 +1,5 @@
+import path from "node:path";
+import { EventStore } from "./storage/events.js";
 import type { EventCluster, GlobalState, MapPoint, NewsItem, Quote } from "./types.js";
 import { refreshQuotes } from "./engines/quotes.js";
 import { buildClusters } from "./engines/events.js";
@@ -29,6 +31,22 @@ export const state: GlobalState = {
 };
 
 let newsPool: NewsItem[] = [];
+let eventStore: EventStore | null = null;
+let newsInFlight = false;
+export function getEventStore() { return eventStore; }
+
+function initializeEventStore() {
+  try {
+    eventStore = new EventStore(process.env.EVENT_DB_PATH || path.resolve(process.cwd(), ".data/events.sqlite"));
+    newsPool = eventStore.recoverNews(Date.now());
+    state.clusters = buildClusters(newsPool, eventStore.previous(newsPool, Date.now()));
+    health("event_archive", true, "File-backed archive; retention across hosting redeploys requires a persistent volume and backups.");
+  } catch {
+    eventStore?.close();
+    eventStore = null;
+    health("event_archive", false, "Archive unavailable. Check database access/schema; existing files have not been replaced.");
+  }
+}
 let gdeltPoints: MapPoint[] = [];
 let quakePoints: MapPoint[] = [];
 
@@ -85,6 +103,8 @@ async function quotesLoop() {
 }
 
 async function newsLoop() {
+  if (newsInFlight) return;
+  newsInFlight = true;
   try {
     const { items, failures, rejected } = await fetchAllFeeds();
     const byId = new Map(newsPool.map((n) => [n.id, n]));
@@ -93,14 +113,24 @@ async function newsLoop() {
       .filter((n) => Date.parse(n.publishedAt) > Date.now() - 36 * 3600_000)
       .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
       .slice(0, 1500);
-    state.clusters = buildClusters(newsPool, state.clusters);
+    if (!eventStore) throw new Error("Event archive unavailable; news publication paused to avoid unrecorded history");
+    const now = Date.now();
+    const previous = eventStore.previous(newsPool, now);
+    // Restore first detection for articles recovered after a restart or archived hiatus.
+    const detections = new Map(previous.flatMap((event) => event.items).map((item) => [item.id, item.detectedAt]));
+    newsPool = newsPool.map((item) => ({ ...item, detectedAt: detections.get(item.id) ?? item.detectedAt }));
+    const clusters = buildClusters(newsPool, previous, now);
+    eventStore.record(clusters, new Date(now).toISOString());
+    state.clusters = clusters;
+    health("event_archive", true, "File-backed archive; hosting volume retention and backups must be verified separately.");
     health("news", failures.length === 0 && rejected === 0,
       `accepted items: ${items.length}; failed feeds: ${failures.join(", ") || "none"}; rejected items: ${rejected}`);
     rebuildDerived();
     notify("events");
   } catch (err) {
-    health("news", false, String(err));
-  }
+    health("news", false, "News refresh or archive write failed; last committed state retained.");
+    health("event_archive", false, "News batch not committed. Check provider and storage availability.");
+  } finally { newsInFlight = false; }
 }
 
 async function probabilityLoop() {
@@ -151,6 +181,7 @@ export function getNewsPool(): NewsItem[] {
 }
 
 export async function startLoops() {
+  initializeEventStore();
   calendarLoop();
   // Initial fetches in parallel; probability engine waits for the first two.
   await Promise.allSettled([quotesLoop(), newsLoop(), mapLoop()]);

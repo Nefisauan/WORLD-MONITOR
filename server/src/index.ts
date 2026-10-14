@@ -1,3 +1,4 @@
+import { registerEventArchive } from "./event-api.js";
 import fs from "node:fs";
 import { registerProbabilityResearch } from "./probability-api.js";
 import path from "node:path";
@@ -5,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
-import { state, startLoops, subscribe } from "./state.js";
+import { state, startLoops, subscribe, getEventStore } from "./state.js";
 import { explainMove } from "./engines/why.js";
 import { generateBrief } from "./engines/brief.js";
 import { llmProvider } from "./engines/llm.js";
@@ -34,6 +35,7 @@ app.get("/api/health", async () => ({ ok: true, uptime: process.uptime() }));
 
 app.get("/api/state", async () => state);
 registerProbabilityResearch(app, () => state.probabilities);
+registerEventArchive(app, getEventStore);
 
 app.get("/api/instruments", async () => INSTRUMENTS);
 
@@ -58,7 +60,7 @@ app.get<{ Params: { assetId: string } }>("/api/why/:assetId", async (req, reply)
 // ---- Event detail ----
 
 app.get<{ Params: { id: string } }>("/api/event/:id", async (req, reply) => {
-  const cluster = state.clusters.find((c) => c.id === req.params.id);
+  const cluster = state.clusters.find((c) => c.id === req.params.id) ?? getEventStore()?.get(req.params.id);
   if (!cluster) return reply.code(404).send({ error: "event not found" });
   return cluster;
 });
